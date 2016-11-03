@@ -653,7 +653,7 @@ int main(int argc, char* argv[]) {
             blocks[i].index = i;
             blocks[i].signature = b.groups[i].signature;
         }
-/*
+        /*
         start = clock();
         struct collisions c = getCollisions(b);
         msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
