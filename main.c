@@ -600,7 +600,7 @@ int sort(struct block *globaldata, long long SIZE) {
 
         /* End wall  time                                                   */
         t_end = MPI_Wtime();
-
+        printf("\n\nWall time      : %7.4f\t", t_end - t_start);
         printf("\n\n");
 
         /* checking if the final globaldata content is properly sorted      */
