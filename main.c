@@ -569,6 +569,7 @@ void sortCheckers (long long SIZE, struct block input[]) {
  *
  */
 
+
 int sort(struct block *globaldata, long long size) {
     int MASTER = 0;
     /*  rank is the rank of the calling process in the communicator       */
@@ -664,12 +665,12 @@ int main(int argc, char* argv[]) {
     msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
     printf("Time taken to find %d blocks: %d seconds %d milliseconds\n", b.count, msec/1000, msec%1000);
 
-    struct block blocks[b.count];
+    struct block *blocks = malloc(b.count * sizeof(struct block));
     for(int i = 0; i < b.count; i++) {
         blocks[i].index = i;
         blocks[i].signature = b.groups[i].signature;
     }
-    sort(blocks, b.count);
+    //sort(blocks, b.count);
     /*
     start = clock();
     struct collisions c = getCollisions(b);
