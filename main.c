@@ -5,6 +5,7 @@
 #include <math.h>
 #include <time.h>
 #include <omp.h>
+#include <mpi.h>
 //#include <libiomp/omp.h>
 /*
  *
@@ -13,6 +14,7 @@
 #define ROWS 4400
 #define BLOCK_SIZE 4
 #define KEY_SIZE 14
+#define MASTER 0/* root process's rank          */
 
 
 struct element {
@@ -421,24 +423,6 @@ struct block {
     long long signature;
 };
 
-
-
-
-/* This function divides elements of an array around a pivot element. All
- * elements less than  or equal to the pivot go on the left side and
- * those greater than the pivot go on the right side.
- *
- * Input:		x	input array
- *              first   leftmost element
- *              last    rightmost element
- * Output		none
- * Return value:	j is returned as the index of the pivot element
- * Sideeffects:		none
- *
- */
-
-
-
 /* Swap elements at index m and n of the array s.
  *
  * Input:		s	array
@@ -449,34 +433,34 @@ struct block {
  * Sideeffects:		none
  *
  */
-void swap (struct block s[], long long m, long long n) {
-    struct block tmp;                        /* temporary variable           */
+void swap(struct block s[], long long m, long long n) {
+    struct block tmp; /* temporary variable           */
     tmp = s[m];
     s[m] = s[n];
     s[n] = tmp;
 }
 
-/* This function iteratively sort an array arr
+/* This function divides elements of an array around a pivot element. All
+ * elements less than  or equal to the pivot go on the left side and
+ * those greater than the pivot go on the right side.
  *
- * Input:		arr	input array
- *              l   leftmost element
- *              h   rightmost element
+ * Input:		x	input array
+ *              first   leftmost element
+ *              last    rightmost element
  * Output		none
- * Return value:	none
+ * Return value:	j is returned as the pivot element
  * Sideeffects:		none
  *
  */
-
-long long partition (struct block x[], long long first, long long last)
-{
-    long long pivot;                       /* pivot variable              */
-    long long  j, i;                       /* loop variable               */
+long long partition(struct block x[], long long first, long long last) {
+    long long pivot; /* pivot variable               */
+    long long j, i; /* loop variable                */
     pivot = first;
     i = first;
     j = last;
 
     while (i < j) {
-	/* move to the right                                                */
+        /* move to the right                                                */
         while (x[i].signature <= x[pivot].signature && i < last) {
             i++;
         }
@@ -486,45 +470,28 @@ long long partition (struct block x[], long long first, long long last)
             j--;
         }
         if (i < j) {
-            swap (x, i, j);                   /* swap i and j                 */
+            swap(x, i, j); /* swap i and j                 */
         }
     }
-    swap (x, pivot, j);                   /* swap pivot and j             */
+
+    swap(x, pivot, j); /* swap pivot and j             */
+
     return j;
 }
 
-void quickSortIterative (struct block arr[], long long l, long long h)
-{
-    long long stack[ h - l + 1 ];         /*  Create an auxiliary stack   */
-    long long top = -1;                   /*  initialize top of stack     */
+void quickSortRecursive(struct block x[], long long first, long long last) {
+    long long pivot; /* pivot variable               */
 
-    /*   push initial values of l and h to stack                          */
-    stack[++top] = l;
-    stack[++top] = h;
+    if (first < last) {
+        /* partition the input array x                                        */
+        pivot = partition(x, first, last);
 
-    /*  Keep popping from stack while is not empty                        */
-    while ( top >= 0 )
-    {
-        /* Pop h and l                                                      */
-        h = stack[ top-- ];
-        l = stack[ top-- ];
+        /* recursively sort left side of the pivot                          */
+        quickSortRecursive(x, first, pivot - 1);
 
-        /* Set pivot element at its correct position in sorted array        */
-        long long p = partition( arr, l, h );
+        /* recursively sort right side of the pivot                         */
+        quickSortRecursive(x, pivot + 1, last);
 
-        /* If there are elements on left side of pivot, then push left      */
-        /* side to stack                                                    */
-        if ( p-1 > l ) {
-            stack[ ++top ] = l;
-            stack[ ++top ] = p - 1;
-        }
-
-        /*  If there are elements on right side of pivot, then push right   */
-        /* side to stack                                                    */
-        if ( p+1 < h ) {
-            stack[ ++top ] = p + 1;
-            stack[ ++top ] = h;
-        }
     }
 }
 
@@ -540,137 +507,150 @@ void quickSortIterative (struct block arr[], long long l, long long h)
  * side effects:	none
  *
  */
-void sortCheckers (long long SIZE, struct block input[]) {
-    long long i;                           /* loop variable               */
+void sortCheckers(long long SIZE, struct block input[]) {
+    long long i; /* Variable declaration         */
 
     for (i = 1; i < SIZE; i++) {
-        if (input[i-1].signature >=  input[i].signature) {
-        printf ("\n\n%lld -- %lld \t", input[i-1], input[i]);
-        printf ("\n\nCheck failed. Array not sorted");
-        break;
+        if (input[i - 1].signature > input[i].signature) {
+            printf("\n\n%lld -- %lld \t", input[i - 1].signature, input[i].signature);
+            printf("\n\nCheck failed. Array not sorted");
+            break;
         }
+
     }
 
-  printf("\n\nCheck successfully completed. Array Sorted");
+    printf("\n\nCheck successfully completed. Array Sorted");
 }
 
-
-
-
-/*  Extract size from a string and converts it to a number of type
- *  long long using some c built-in functions.
- *
- *
- * Input:		str   represents the extracted input filename from the
- *                    command line argument.
- * Output:		    none
- * Return value:	return the size of type long long
- * Sideeffects:		none
- *
- */
-
-
-int sort(struct block *globaldata, long long size) {
-    int MASTER = 0;
+int sort(struct block *globaldata, long long SIZE) {
     /*  rank is the rank of the calling process in the communicator       */
     int rank;
-    int npes;                            /* number of processes          */    
-    double t_start, t_end;                /* variable used for clock time */
+    long long i; /* loop variable                */
+    long long retscan; /* return value of scanf        */
+    long long tmp; /* temporary variable           */
+    double t_start, t_end; /* variable used for clock time */
+    long long test_size = 5; /* test loop size's variable    */
+    FILE * out, * inp; /* declare output/input stream  */
+    int npes; /* number of processes          */
+    struct block * localdata = NULL; /* for local  array pointer     */
+    long long localsize; /* for local array size         */
 
-    struct block *localdata = NULL;          /* for local  array pointer     */
-    long long localsize;                  /* for local array size         */
+    MPI_Comm_size(MPI_COMM_WORLD, & npes);
+    MPI_Comm_rank(MPI_COMM_WORLD, & rank);
 
-    /* initialize the mpi execution environment                           */
-    mpi_init (NULL, NULL);
-
-    mpi_comm_size (mpi_comm_world, &npes);
-    MPI_Comm_rank (MPI_COMM_WORLD, &rank);
+    if (rank == MASTER) {
+        printf("\n\nProcessor %d has data: ", rank);
+        for (i = 0; i < test_size; i++) {
+            printf("%lld \t", globaldata[i].signature);
+        }
+        printf("\n");
+    }
 
     /*Start wall  time                                                    */
-    if (rank == MASTER)
-    {
-        t_start = MPI_Wtime ();
+    if (rank == MASTER) {
+        t_start = MPI_Wtime();
     }
 
     /*Getting the size to be used by each process                         */
-    if (size < npes) {
-        printf ("\n\n SIZE is less than the number of process!  \n\n ");
-        return;
+    if (SIZE < npes) {
+        printf("\n\n SIZE is less than the number of process!  \n\n ");
+        exit(EXIT_FAILURE);
     }
-    localsize = size/npes;
-  
+    localsize = SIZE / npes;
+
     /* Allocate memory to localdata of size localsize                     */
-    localdata = malloc(localsize * sizeof (struct block));
+    localdata = (struct block * ) malloc(localsize * sizeof(struct block));
     if (localdata == NULL) {
-        printf ("\n\n localdata Memory Allocation Failed !  \n\n ");
-        return;
+        printf("\n\n localdata Memory Allocation Failed !  \n\n ");
+        exit(EXIT_FAILURE);
     }
 
     /* create a type for struct block */
     MPI_Datatype MPI_BLOCK_TYPE;
     MPI_Datatype type[2] = {MPI_INT, MPI_LONG_LONG};    
     int blocklen[2] = {1,1};
-    MPI_Aint offsets[2];    
-    offsets[0] = offsetof(struct block, b.index);
+    int offsets[2];    
+    offsets[0] = offsetof(struct block, index);
     offsets[1] = offsetof(struct block, signature);
     MPI_Type_create_struct(2, blocklen, offsets, type, &MPI_BLOCK_TYPE);
     MPI_Type_commit(&MPI_BLOCK_TYPE);
 
-
-    /*Scatter the blocks to each number of processes (npes)             */
-    MPI_Scatter (globaldata, localsize, MPI_BLOCK_TYPE, localdata,
-             localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    /*Scatter the integers to each number of processes (npes)             */
+    MPI_Scatter(globaldata, localsize, MPI_BLOCK_TYPE, localdata,
+        localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
 
     /* Perform local sort on each sub data by each process                */
-    quickSortIterative (localdata, 0, localsize-1);
-    MPI_Gather (localdata, localsize, MPI_BLOCK_TYPE, globaldata,
-            localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
-    //free (localdata);
+    quickSortRecursive(localdata, 0, localsize - 1);
+
+    /*
+     * printf ("\n\nProcessor %d has sorted data \n\n", rank);
+     *   for ( i = 0; i<test_size; i++) {
+     *     printf ("%lld \t", localdata[i]);
+     *  }
+     */
+
+    /* Merge locally sorted data of each process by MASTER to globaldata  */
+    MPI_Gather(localdata, localsize, MPI_BLOCK_TYPE, globaldata,
+        localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    free(localdata);
 
     if (rank == MASTER) {
-    /* Final sorting                                                      */
-        quickSortIterative (globaldata, 0, size-1);
-        /* End wall  time                                                     */
-        t_end = MPI_Wtime ();
-        printf ("Sort completed, checking if sorted\n");
+        /* Final sorting                                                    */
+        quickSortRecursive(globaldata, 0, SIZE - 1);
 
-        /* checking if the final globaldata content is properly sorted        */
-        sortCheckers (size, globaldata);
-        printf ("\n\n");
+        /* End wall  time                                                   */
+        t_end = MPI_Wtime();
+
+        printf("\n\n");
+
+        /* checking if the final globaldata content is properly sorted      */
+        sortCheckers(SIZE, globaldata);
+
+        printf("\n\n");
+
     }
-
-    /* MPI_Finalize Terminates MPI execution environment                  */
-    MPI_Finalize ();
+    return EXIT_SUCCESS;
 }
 
 
+
 int main(int argc, char* argv[]) {
-    clock_t start = clock();
-    clock_t startTotal = clock();
-    long long *keys = loadKeys();
-    float **data = loadMatrix();
-    struct element **elementMatrix = getElementMatrix(data, keys);
-    int msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-    printf("Time taken to load data: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+    clock_t startTotal = clock();    
+    struct block * blocks;
+    int blockCount = 29353148;  
 
-    start = clock();
-    struct elementGroups n = getAllNeighbourhoods(0.000001, elementMatrix);
-    free(elementMatrix);
-    msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-    printf("Time taken to find %d neighbourhoods: %d seconds %d milliseconds\n", n.count, msec/1000, msec%1000);
+    /* Initialize the MPI execution environment                           */
+    MPI_Init(NULL, NULL);    
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, & rank);
+
+    if (rank == MASTER) {    
+        clock_t start = clock();
+        long long *keys = loadKeys();
+        float **data = loadMatrix();
+        struct element **elementMatrix = getElementMatrix(data, keys);
+        int msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to load data: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+
+        start = clock();
+        struct elementGroups n = getAllNeighbourhoods(0.000001, elementMatrix);
+        free(elementMatrix);
+        msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to find %d neighbourhoods: %d seconds %d milliseconds\n", n.count, msec/1000, msec%1000);
     
-    start = clock();
-    //struct elementGroups b = getBlocks(n);
-    struct elementGroups b = getBlocksParallel(n, keys);
-    msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-    printf("Time taken to find %d blocks: %d seconds %d milliseconds\n", b.count, msec/1000, msec%1000);
+        start = clock();
+        //struct elementGroups b = getBlocks(n);
+        struct elementGroups b = getBlocksParallel(n, keys);
+        msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to find %d blocks: %d seconds %d milliseconds\n", b.count, msec/1000, msec%1000);
 
-    struct block *blocks = malloc(b.count * sizeof(struct block));
-    for(int i = 0; i < b.count; i++) {
-        blocks[i].index = i;
-        blocks[i].signature = b.groups[i].signature;
+        blocks = malloc(b.count * sizeof(struct block));
+        for(int i = 0; i < b.count; i++) {
+            blocks[i].index = i;
+            blocks[i].signature = b.groups[i].signature;
+        }
     }
-    //sort(blocks, b.count);
+    sort(blocks, blockCount);
     /*
     start = clock();
     struct collisions c = getCollisions(b);
@@ -678,9 +658,12 @@ int main(int argc, char* argv[]) {
     printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
     //printCollisions(c, data);
     */
-
-    msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
-    printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+    if (rank == MASTER) { 
+        int msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
+        printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
+    }
+    /* MPI_Finalize Terminates MPI execution environment                  */
+    MPI_Finalize();
 
     return (EXIT_SUCCESS);
 }
