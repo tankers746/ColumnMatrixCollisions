@@ -112,7 +112,7 @@ void printBlocks(struct elementGroups blocks, float **data, long long *keys) {
         printf("col %i [", blocks.groups[i].col);
         for(int j = 0; j < BLOCK_SIZE; j++) {
             struct colElementGroup b = blocks.groups[i];
-            printf("[%i] %f, key %lld ", b.elements[j], data[b.col][b.elements[j].index], keys[b.elements[j].index]);
+            printf("[%i] %f, key %lld ", b.elements[j].index, data[b.col][b.elements[j].index], keys[b.elements[j].index]);
         }
         printf("] - sig %lld\n", blocks.groups[i].signature);
     }
@@ -569,7 +569,7 @@ int sort(struct block *globaldata, long long SIZE) {
     MPI_Datatype MPI_BLOCK_TYPE;
     MPI_Datatype type[2] = {MPI_INT, MPI_LONG_LONG};    
     int blocklen[2] = {1,1};
-    int offsets[2];    
+    MPI_Aint offsets[2];    
     offsets[0] = offsetof(struct block, index);
     offsets[1] = offsetof(struct block, signature);
     MPI_Type_create_struct(2, blocklen, offsets, type, &MPI_BLOCK_TYPE);
