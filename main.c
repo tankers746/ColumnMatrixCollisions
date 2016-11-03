@@ -624,7 +624,11 @@ int main(int argc, char* argv[]) {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, & rank);
 
-    if (rank == MASTER) {    
+    if (rank == MASTER) { 
+        int npes;
+        MPI_Comm_size(MPI_COMM_WORLD, & npes);
+        printf("%d processes\n", npes); 
+
         clock_t start = clock();
         long long *keys = loadKeys();
         float **data = loadMatrix();
@@ -649,13 +653,16 @@ int main(int argc, char* argv[]) {
             blocks[i].index = i;
             blocks[i].signature = b.groups[i].signature;
         }
+
+        start = clock();
+        struct collisions c = getCollisions(b);
+        msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
+        
+
     }
     sort(blocks, blockCount);
     /*
-    start = clock();
-    struct collisions c = getCollisions(b);
-    msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-    printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
     //printCollisions(c, data);
     */
     if (rank == MASTER) { 
