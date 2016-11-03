@@ -1,3 +1,4 @@
-#PBS -l nodes=8:ppn=4
+#PBS -l nodes=10:ppn=1
 source /etc/bash.bashrc
-mpirun mpi.exe
+cd ~/ColumnMatrixCollisions
+mpirun main
