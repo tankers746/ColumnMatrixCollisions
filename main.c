@@ -604,7 +604,7 @@ int sort(struct block *globaldata, long long SIZE) {
         printf("\n\n");
 
         /* checking if the final globaldata content is properly sorted      */
-        sortCheckers(SIZE, globaldata);
+        //sortCheckers(SIZE, globaldata);
 
         printf("\n\n");
 
@@ -653,12 +653,12 @@ int main(int argc, char* argv[]) {
             blocks[i].index = i;
             blocks[i].signature = b.groups[i].signature;
         }
-
+        /*
         start = clock();
         struct collisions c = getCollisions(b);
         msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
         printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
-        
+       */ 
 
     }
     sort(blocks, blockCount);
