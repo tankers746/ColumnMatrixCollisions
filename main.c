@@ -17,7 +17,7 @@
 
 struct element {
     int index;
-    long long key;
+    //long long key;
     float value;
 };
 
@@ -27,7 +27,6 @@ struct colElementGroup {
     int col;
     struct element *elements;
     //optional (used in block)
-    int blockIndexes[BLOCK_SIZE];
     long long signature;
     int blockCount;
 };
@@ -101,7 +100,6 @@ struct element **getElementMatrix(float **data, long long *keys) {
         for(int j = 0; j < ROWS; j++) {
             elementMatrix[i][j].index = j;
             elementMatrix[i][j].value = data[i][j];
-            elementMatrix[i][j].key = keys[j];
         }
     }  
     return elementMatrix;
@@ -112,7 +110,7 @@ void printBlocks(struct elementGroups blocks, float **data, long long *keys) {
         printf("col %i [", blocks.groups[i].col);
         for(int j = 0; j < BLOCK_SIZE; j++) {
             struct colElementGroup b = blocks.groups[i];
-            printf("[%i] %f, key %lld ", b.blockIndexes[j], data[b.col][b.blockIndexes[j]], keys[b.blockIndexes[j]]);
+            printf("[%i] %f, key %lld ", b.elements[j], data[b.col][b.elements[j].index], keys[b.elements[j].index]);
         }
         printf("] - sig %lld\n", blocks.groups[i].signature);
     }
@@ -127,17 +125,17 @@ void printCollisions(struct collisions c, float **data) {
             struct colElementGroup b = blocks.groups[j];
             printf("col %i: [", b.col);
             for(int k = 0; k  < BLOCK_SIZE; k++) {
-                printf("%f, ", data[b.col][b.blockIndexes[k]]);
+                printf("%f, ", data[b.col][b.elements[k].index]);
             }
             printf("]\n");
         }
     }
 }
 
-long long getSignature(long long keys[]) {
+long long getSignature(long long *keys, struct element *elements) {
     long long signature = 0;
     for (int i = 0; i < BLOCK_SIZE; i++) {
-        signature += keys[i];
+        signature += keys[elements[i].index];
     }
     return signature;
 }
@@ -265,7 +263,7 @@ struct elementGroups getAllNeighbourhoods(float dia, struct element **elementMat
     return groupArrayToStruct(temp, COLS, totalNeighbourhoodCount);
 }
 
-void findCombinations(struct elementGroups *blocks, struct colElementGroup neighbourhood, int start, int currLen, bool used[]) {
+void findCombinations(struct elementGroups *blocks, struct colElementGroup neighbourhood, int start, int currLen, bool used[], long long *keys) {
     if (currLen == BLOCK_SIZE) {
         int blockCount;
         #pragma omp atomic capture
@@ -274,16 +272,15 @@ void findCombinations(struct elementGroups *blocks, struct colElementGroup neigh
             blocks->count++;
         }   
         int elementCount = 0;
-        long long keys[BLOCK_SIZE];
+        blocks->groups[blockCount].elements = malloc(BLOCK_SIZE * sizeof(struct element));
         for (int i = 0; i < neighbourhood.count; i++) {
             if (used[i] == true) {
-                keys[elementCount] = neighbourhood.elements[i].key;
-                blocks->groups[blockCount].blockIndexes[elementCount] = neighbourhood.elements[i].index;
+                blocks->groups[blockCount].elements[elementCount] = neighbourhood.elements[i];
                 elementCount++;
             }
         }
         blocks->groups[blockCount].count = elementCount;
-        blocks->groups[blockCount].signature = getSignature(keys);
+        blocks->groups[blockCount].signature = getSignature(keys, blocks->groups[blockCount].elements);
         blocks->groups[blockCount].col = neighbourhood.col;        
         return;
     }
@@ -291,12 +288,12 @@ void findCombinations(struct elementGroups *blocks, struct colElementGroup neigh
         return;
     }
     used[start] = true;
-    findCombinations(blocks, neighbourhood, start + 1, currLen + 1, used); 
+    findCombinations(blocks, neighbourhood, start + 1, currLen + 1, used, keys); 
     used[start] = false;
-    findCombinations(blocks, neighbourhood, start + 1, currLen, used);
+    findCombinations(blocks, neighbourhood, start + 1, currLen, used, keys);
 }
 
-struct elementGroups getBlocks(struct elementGroups neighbourhoods) {
+struct elementGroups getBlocks(struct elementGroups neighbourhoods, long long *keys) {
     struct elementGroups blocks;
     blocks.groups = malloc(neighbourhoods.blockCount * sizeof(struct colElementGroup));
     blocks.count = 0;
@@ -305,7 +302,7 @@ struct elementGroups getBlocks(struct elementGroups neighbourhoods) {
         int length = neighbourhoods.groups[i].count;
         bool used[length];
         memset(used, false, sizeof(used));
-        findCombinations(&blocks, neighbourhoods.groups[i], 0, 0, used);
+        findCombinations(&blocks, neighbourhoods.groups[i], 0, 0, used, keys);
         free(neighbourhoods.groups[i].elements);
     }
     free(neighbourhoods.groups);
@@ -317,7 +314,7 @@ int triangularNumber(int n) {
     return n + triangularNumber(n-1);  
 } 
 
-struct elementGroups getBlocksParallel(struct elementGroups neighbourhoods) {
+struct elementGroups getBlocksParallel(struct elementGroups neighbourhoods, long long *keys) {
     qsort(neighbourhoods.groups, neighbourhoods.count, sizeof(struct colElementGroup), groupComp_size);
     int n_threads = omp_get_max_threads();
     int bins[n_threads];
@@ -350,23 +347,22 @@ struct elementGroups getBlocksParallel(struct elementGroups neighbourhoods) {
             bottomIndex += bigNumbers[j];
             topIndex += bins[j] - bigNumbers[j];
         }
-
-
-        //each node takes some from the bottom (big) and the rest from the top (small)        
+        //each node takes some from the bottom (big) and the rest from the top (small)  
         for(int j = 0; j < bins[i]; j++) {
             //takes from the bottom (big)
             if(j < bigNumbers[i]) {
-                node_neighbourhoods.groups[j] = neighbourhoods.groups[neighbourhoods.count - bottomIndex++ - 1];
+                node_neighbourhoods.groups[j] = neighbourhoods.groups[neighbourhoods.count - 1 - (bottomIndex + j)]; 
             //takes from the top (small)
-            } else {
-                node_neighbourhoods.groups[j] = neighbourhoods.groups[topIndex++];
+            } else {              
+                node_neighbourhoods.groups[j] = neighbourhoods.groups[topIndex + j - bigNumbers[i]];
             }
             node_neighbourhoods.blockCount += node_neighbourhoods.groups[j].blockCount;
             node_neighbourhoods.count++;
         }
         totalBlockCount += node_neighbourhoods.blockCount;
-        nodeBlocks[i] = getBlocks(node_neighbourhoods);
+        nodeBlocks[i] = getBlocks(node_neighbourhoods, keys);
         //printf("Thread %d will produce %d blocks\n", i, node_neighbourhoods.blockCount);
+        //qsort(nodeBlocks[i].groups, nodeBlocks[i].count, sizeof(struct colElementGroup), groupComp_sig);
     }
     return groupArrayToStruct(nodeBlocks, n_threads, totalBlockCount);
 }
@@ -418,6 +414,235 @@ struct collisions getCollisions(struct elementGroups blocks) {
     return c;
 }
 
+
+
+struct block {
+    int index;
+    long long signature;
+};
+
+
+
+
+/* This function divides elements of an array around a pivot element. All
+ * elements less than  or equal to the pivot go on the left side and
+ * those greater than the pivot go on the right side.
+ *
+ * Input:		x	input array
+ *              first   leftmost element
+ *              last    rightmost element
+ * Output		none
+ * Return value:	j is returned as the index of the pivot element
+ * Sideeffects:		none
+ *
+ */
+
+
+
+/* Swap elements at index m and n of the array s.
+ *
+ * Input:		s	array
+ *              m   left index
+ *              n   right index
+ * Output		none
+ * Return value:	none
+ * Sideeffects:		none
+ *
+ */
+void swap (struct block s[], long long m, long long n) {
+    struct block tmp;                        /* temporary variable           */
+    tmp = s[m];
+    s[m] = s[n];
+    s[n] = tmp;
+}
+
+/* This function iteratively sort an array arr
+ *
+ * Input:		arr	input array
+ *              l   leftmost element
+ *              h   rightmost element
+ * Output		none
+ * Return value:	none
+ * Sideeffects:		none
+ *
+ */
+
+long long partition (struct block x[], long long first, long long last)
+{
+    long long pivot;                       /* pivot variable              */
+    long long  j, i;                       /* loop variable               */
+    pivot = first;
+    i = first;
+    j = last;
+
+    while (i < j) {
+	/* move to the right                                                */
+        while (x[i].signature <= x[pivot].signature && i < last) {
+            i++;
+        }
+
+        /* move to the left                                                 */
+        while (x[j].signature > x[pivot].signature) {
+            j--;
+        }
+        if (i < j) {
+            swap (x, i, j);                   /* swap i and j                 */
+        }
+    }
+    swap (x, pivot, j);                   /* swap pivot and j             */
+    return j;
+}
+
+void quickSortIterative (struct block arr[], long long l, long long h)
+{
+    long long stack[ h - l + 1 ];         /*  Create an auxiliary stack   */
+    long long top = -1;                   /*  initialize top of stack     */
+
+    /*   push initial values of l and h to stack                          */
+    stack[++top] = l;
+    stack[++top] = h;
+
+    /*  Keep popping from stack while is not empty                        */
+    while ( top >= 0 )
+    {
+        /* Pop h and l                                                      */
+        h = stack[ top-- ];
+        l = stack[ top-- ];
+
+        /* Set pivot element at its correct position in sorted array        */
+        long long p = partition( arr, l, h );
+
+        /* If there are elements on left side of pivot, then push left      */
+        /* side to stack                                                    */
+        if ( p-1 > l ) {
+            stack[ ++top ] = l;
+            stack[ ++top ] = p - 1;
+        }
+
+        /*  If there are elements on right side of pivot, then push right   */
+        /* side to stack                                                    */
+        if ( p+1 < h ) {
+            stack[ ++top ] = p + 1;
+            stack[ ++top ] = h;
+        }
+    }
+}
+
+/* Checking a list of sorted numbers. Make sure that each number is
+ * less or equal to its immediate right neighbours / greater or equal to
+ * its immediate left value.
+ *
+ * input parameters:	SIZE  total number of sorted items
+ *                      input array containing sorted items
+ *
+ * output parameters:	input[index-1], input[index] shown on failure
+ * return value:	none
+ * side effects:	none
+ *
+ */
+void sortCheckers (long long SIZE, struct block input[]) {
+    long long i;                           /* loop variable               */
+
+    for (i = 1; i < SIZE; i++) {
+        if (input[i-1].signature >=  input[i].signature) {
+        printf ("\n\n%lld -- %lld \t", input[i-1], input[i]);
+        printf ("\n\nCheck failed. Array not sorted");
+        break;
+        }
+    }
+
+  printf("\n\nCheck successfully completed. Array Sorted");
+}
+
+
+
+
+/*  Extract size from a string and converts it to a number of type
+ *  long long using some c built-in functions.
+ *
+ *
+ * Input:		str   represents the extracted input filename from the
+ *                    command line argument.
+ * Output:		    none
+ * Return value:	return the size of type long long
+ * Sideeffects:		none
+ *
+ */
+
+int sort(struct block *globaldata, long long size) {
+    int MASTER = 0;
+    /*  rank is the rank of the calling process in the communicator       */
+    int rank;
+    int npes;                            /* number of processes          */    
+    double t_start, t_end;                /* variable used for clock time */
+
+    struct block *localdata = NULL;          /* for local  array pointer     */
+    long long localsize;                  /* for local array size         */
+
+    /* initialize the mpi execution environment                           */
+    mpi_init (NULL, NULL);
+
+    mpi_comm_size (mpi_comm_world, &npes);
+    MPI_Comm_rank (MPI_COMM_WORLD, &rank);
+
+    /*Start wall  time                                                    */
+    if (rank == MASTER)
+    {
+        t_start = MPI_Wtime ();
+    }
+
+    /*Getting the size to be used by each process                         */
+    if (size < npes) {
+        printf ("\n\n SIZE is less than the number of process!  \n\n ");
+        return;
+    }
+    localsize = size/npes;
+  
+    /* Allocate memory to localdata of size localsize                     */
+    localdata = malloc(localsize * sizeof (struct block));
+    if (localdata == NULL) {
+        printf ("\n\n localdata Memory Allocation Failed !  \n\n ");
+        return;
+    }
+
+    /* create a type for struct block */
+    MPI_Datatype MPI_BLOCK_TYPE;
+    MPI_Datatype type[2] = {MPI_INT, MPI_LONG_LONG};    
+    int blocklen[2] = {1,1};
+    MPI_Aint offsets[2];    
+    offsets[0] = offsetof(struct block, b.index);
+    offsets[1] = offsetof(struct block, signature);
+    MPI_Type_create_struct(2, blocklen, offsets, type, &MPI_BLOCK_TYPE);
+    MPI_Type_commit(&MPI_BLOCK_TYPE);
+
+
+    /*Scatter the blocks to each number of processes (npes)             */
+    MPI_Scatter (globaldata, localsize, MPI_BLOCK_TYPE, localdata,
+             localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+
+    /* Perform local sort on each sub data by each process                */
+    quickSortIterative (localdata, 0, localsize-1);
+    MPI_Gather (localdata, localsize, MPI_BLOCK_TYPE, globaldata,
+            localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    //free (localdata);
+
+    if (rank == MASTER) {
+    /* Final sorting                                                      */
+        quickSortIterative (globaldata, 0, size-1);
+        /* End wall  time                                                     */
+        t_end = MPI_Wtime ();
+        printf ("Sort completed, checking if sorted\n");
+
+        /* checking if the final globaldata content is properly sorted        */
+        sortCheckers (size, globaldata);
+        printf ("\n\n");
+    }
+
+    /* MPI_Finalize Terminates MPI execution environment                  */
+    MPI_Finalize ();
+}
+
+
 int main(int argc, char* argv[]) {
     clock_t start = clock();
     clock_t startTotal = clock();
@@ -435,15 +660,23 @@ int main(int argc, char* argv[]) {
     
     start = clock();
     //struct elementGroups b = getBlocks(n);
-    struct elementGroups b = getBlocksParallel(n);
+    struct elementGroups b = getBlocksParallel(n, keys);
     msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
     printf("Time taken to find %d blocks: %d seconds %d milliseconds\n", b.count, msec/1000, msec%1000);
 
+    struct block blocks[b.count];
+    for(int i = 0; i < b.count; i++) {
+        blocks[i].index = i;
+        blocks[i].signature = b.groups[i].signature;
+    }
+    sort(blocks, b.count);
+    /*
     start = clock();
     struct collisions c = getCollisions(b);
     msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
     printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
     //printCollisions(c, data);
+    */
 
     msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
     printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
