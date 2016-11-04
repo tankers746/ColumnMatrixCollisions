@@ -538,11 +538,11 @@ void sort(struct block *globalData, int size) {
 
     //Scatter the blocks to each process
     //Each process receives the array of sructs
-    MPI_Scatter(globaldata, localsize, MPI_BLOCK_TYPE, localdata, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    MPI_Scatter(globalData, localsize, MPI_BLOCK_TYPE, localdata, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
     quickSortRecursive(localdata, 0, localsize - 1);
 
     //merge the locally sorted data
-    MPI_Gather(localdata, localsize, MPI_BLOCK_TYPE, globaldata, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    MPI_Gather(localdata, localsize, MPI_BLOCK_TYPE, globalData, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
     free(localdata);
 
     if (rank == MASTER) {
@@ -555,7 +555,7 @@ void sort(struct block *globalData, int size) {
 }
 
 int main(int argc, char* argv[]) {
-    clock_t startTotal = clock();    
+    clock_t startTotal = clock();   
     long long *keys;
     float **data;    
     struct block * sortedBlocks;
@@ -598,16 +598,21 @@ int main(int argc, char* argv[]) {
         start = clock();
         qsort(b.groups, b.count, sizeof(struct colElementGroup), groupComp_sig);
         msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-        printf("qsort time taken: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);      
+        printf("qsort time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);      
     }
+
+    clock_t startSort = clock();  
     sort(sortedBlocks, blockCount);
 
     if (rank == MASTER) { 
         sortCheckers(blockCount, sortedBlocks);
-        struct collisions c = getCollisions(b, sortedBlocks);   
+        struct collisions c = getCollisions(b, sortedBlocks); 
+        int msec = (clock() - startSort) * 1000 / CLOCKS_PER_SEC;
+        printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
+
         printCollisions(c, data);
 
-        int msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
+        msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
         printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
     }
     MPI_Finalize();
