@@ -1,0 +1,11 @@
+[ECM-HPC1-26:21267] *** Process received signal ***
+[ECM-HPC1-26:21267] Signal: Segmentation fault (11)
+[ECM-HPC1-26:21267] Signal code: Invalid permissions (2)
+[ECM-HPC1-26:21267] Failing at address: 0x7fc06c06f000
+[ECM-HPC1-26:21267] [ 0] /lib/x86_64-linux-gnu/libpthread.so.0(+0x10330)[0x7fc119fd0330]
+[ECM-HPC1-26:21267] [ 1] main[0x401f02]
+[ECM-HPC1-26:21267] [ 2] main[0x4026ab]
+[ECM-HPC1-26:21267] [ 3] main[0x403114]
+[ECM-HPC1-26:21267] [ 4] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0xf5)[0x7fc119c1cf45]
+[ECM-HPC1-26:21267] [ 5] main[0x4010e9]
+[ECM-HPC1-26:21267] *** End of error message ***

@@ -1,0 +1,6 @@
+Nodes: 26, PPN: 1
+Time taken to load data: 0 seconds 480 milliseconds
+Time taken to find 5170 neighbourhoods: 3 seconds 177 milliseconds
+--------------------------------------------------------------------------
+mpirun noticed that process rank 0 with PID 21267 on node ECM-HPC1-26 exited on signal 11 (Segmentation fault).
+--------------------------------------------------------------------------
