@@ -623,11 +623,10 @@ int main(int argc, char* argv[]) {
     MPI_Init(NULL, NULL);    
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, & rank);
+    
 
     if (rank == MASTER) { 
-        int npes;
-        MPI_Comm_size(MPI_COMM_WORLD, & npes);
-        printf("%d processes\n", npes); 
+	printf("Nodes: %s, PPN: %s\n", argv[1], argv[2]);
 
         clock_t start = clock();
         long long *keys = loadKeys();
@@ -666,12 +665,7 @@ int main(int argc, char* argv[]) {
     //printCollisions(c, data);
     */
     if (rank == MASTER) { 
-        clock_t start = clock();
-        struct collisions c = getCollisions(b);
-        int msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-        printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
-
-        msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
+        int msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
         printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
     }
     /* MPI_Finalize Terminates MPI execution environment                  */

@@ -1,0 +1,14 @@
+Nodes: 23, PPN: 6
+Time taken to load data: 0 seconds 485 milliseconds
+Time taken to find 5170 neighbourhoods: 3 seconds 178 milliseconds
+Time taken to find 29353148 blocks: 11 seconds 198 milliseconds
+
+
+Processor 0 has data: 260181298753313 	198990909054375 	262494368334007 	248609378825064 	253837081022026 	
+
+
+Wall time      : 65.2747	
+
+
+
+Total time taken: 80 seconds 606 milliseconds
