@@ -23,6 +23,11 @@ struct element {
     float value;
 };
 
+struct block {
+    int index;
+    long long signature;
+};
+
 //a group of elements from the same column, either a block or neighbourhood
 struct colElementGroup {
     int count;
@@ -150,6 +155,16 @@ int elementComp(const void* p1, const void* p2) {
         return -1;
     }
     return (elem1->value > elem2->value);
+}
+
+int blockComp(const void* p1, const void* p2) {
+    const struct block *elem1 = p1;
+    const struct block *elem2 = p2;
+    
+    if(elem1->signature < elem2->signature) {
+        return -1;
+    }
+    return (elem1->signature > elem2->signature);
 }
 
 int groupComp_sig(const void* p1, const void* p2) {
@@ -369,16 +384,16 @@ struct elementGroups getBlocksParallel(struct elementGroups neighbourhoods, long
     return groupArrayToStruct(nodeBlocks, n_threads, totalBlockCount);
 }
 
-struct collisions getCollisions(struct elementGroups blocks) {
+struct collisions getCollisions(struct elementGroups blocks, struct block *sortedBlocks) {
     //takes aaaaaaaaaages
     //clock_t start = clock();
-    qsort(blocks.groups, blocks.count, sizeof(struct colElementGroup), groupComp_sig);
+    //qsort(blocks.groups, blocks.count, sizeof(struct colElementGroup), groupComp_sig);
     //int msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
     //printf("Time taken to qqsort %d blocks: %d seconds %d milliseconds\n", blocks.count, msec/1000, msec%1000);       
 
     struct collisions c;
     c.collisions = malloc(blocks.count * sizeof(struct elementGroups));  
-    struct colElementGroup *currentBlock;
+    struct block currentBlock;
     int collisionCount = 0;
     
     int i = 0;
@@ -390,23 +405,25 @@ struct collisions getCollisions(struct elementGroups blocks) {
         bool columns[COLS];
         memset(columns, false, sizeof(columns));
         do {
-            currentBlock = &blocks.groups[i++];
+            //currentBlock = &blocks.groups[i++];
+            currentBlock = sortedBlocks[i++];
+
             //if no collision in that column
-            if(columns[currentBlock->col] == false) {
+            if(columns[blocks.groups[currentBlock.index].col] == false) {
                 trueBlockCount++;
-                columns[currentBlock->col] = true;
+                columns[blocks.groups[currentBlock.index].col] = true;
             }
             blockCount++;
-        } while(currentBlock->signature == blocks.groups[i].signature);
+        } while(blocks.groups[currentBlock.index].signature == blocks.groups[i].signature);
         //collision found
         if(trueBlockCount > 1) {
             c.collisions[collisionCount].groups = malloc(trueBlockCount * sizeof(struct colElementGroup));
             c.collisions[collisionCount].count = trueBlockCount;
             for(blockCount; blockCount > 0; blockCount--) {
                 //if first instance of collision in that column
-                if(columns[blocks.groups[i-blockCount].col] == true) {
-                    c.collisions[collisionCount].groups[--trueBlockCount] = blocks.groups[i-blockCount];
-                    columns[blocks.groups[i-blockCount].col] = false;
+                if(columns[blocks.groups[sortedBlocks[i-blockCount].index].col] == true) {
+                    c.collisions[collisionCount].groups[--trueBlockCount] = blocks.groups[sortedBlocks[i-blockCount].index];
+                    columns[blocks.groups[sortedBlocks[i-blockCount].index].col] = false;
                 }                
             }
             collisionCount++;
@@ -416,156 +433,100 @@ struct collisions getCollisions(struct elementGroups blocks) {
     return c;
 }
 
-
-
-struct block {
-    int index;
-    long long signature;
-};
-
-/* Swap elements at index m and n of the array s.
- *
- * Input:		s	array
- *              m   left index
- *              n   right index
- * Output		none
- * Return value:	none
- * Sideeffects:		none
- *
- */
-void swap(struct block s[], long long m, long long n) {
-    struct block tmp; /* temporary variable           */
+void swap(struct block s[], int m, int n) {
+    struct block tmp;
     tmp = s[m];
     s[m] = s[n];
     s[n] = tmp;
 }
 
-/* This function divides elements of an array around a pivot element. All
- * elements less than  or equal to the pivot go on the left side and
- * those greater than the pivot go on the right side.
- *
- * Input:		x	input array
- *              first   leftmost element
- *              last    rightmost element
- * Output		none
- * Return value:	j is returned as the pivot element
- * Sideeffects:		none
- *
- */
-long long partition(struct block x[], long long first, long long last) {
-    long long pivot; /* pivot variable               */
-    long long j, i; /* loop variable                */
+int partition(struct block x[], int first, int last) {
+    int pivot;
+    int j, i;
     pivot = first;
     i = first;
     j = last;
-
     while (i < j) {
-        /* move to the right                                                */
+        //move to the right
         while (x[i].signature <= x[pivot].signature && i < last) {
             i++;
         }
-
-        /* move to the left                                                 */
+        //move to the left
         while (x[j].signature > x[pivot].signature) {
             j--;
         }
         if (i < j) {
-            swap(x, i, j); /* swap i and j                 */
+            swap(x, i, j);
         }
     }
-
-    swap(x, pivot, j); /* swap pivot and j             */
-
+    swap(x, pivot, j);
     return j;
 }
 
-void quickSortRecursive(struct block x[], long long first, long long last) {
-    long long pivot; /* pivot variable               */
-
+void quickSortRecursive(struct block x[], int first, int last) {
+    int pivot;
     if (first < last) {
-        /* partition the input array x                                        */
         pivot = partition(x, first, last);
-
-        /* recursively sort left side of the pivot                          */
         quickSortRecursive(x, first, pivot - 1);
-
-        /* recursively sort right side of the pivot                         */
         quickSortRecursive(x, pivot + 1, last);
 
     }
 }
 
-/* Checking a list of sorted numbers. Make sure that each number is
- * less or equal to its immediate right neighbours / greater or equal to
- * its immediate left value.
- *
- * input parameters:	SIZE  total number of sorted items
- *                      input array containing sorted items
- *
- * output parameters:	input[index-1], input[index] shown on failure
- * return value:	none
- * side effects:	none
- *
- */
-void sortCheckers(long long SIZE, struct block input[]) {
-    long long i; /* Variable declaration         */
-
-    for (i = 1; i < SIZE; i++) {
+void sortCheckers(int size, struct block input[]) {
+    int i;
+    for (i = 1; i < size; i++) {
         if (input[i - 1].signature > input[i].signature) {
-            printf("\n\n%lld -- %lld \t", input[i - 1].signature, input[i].signature);
-            printf("\n\nCheck failed. Array not sorted");
+            printf("%lld -- %lld \n", input[i - 1].signature, input[i].signature);
+            printf("Check failed. Array not sorted\n");
             break;
         }
 
     }
-
     printf("\n\nCheck successfully completed. Array Sorted");
 }
 
-int sort(struct block *globaldata, long long SIZE) {
-    /*  rank is the rank of the calling process in the communicator       */
-    int rank;
-    long long i; /* loop variable                */
-    long long retscan; /* return value of scanf        */
-    long long tmp; /* temporary variable           */
-    double t_start, t_end; /* variable used for clock time */
-    long long test_size = 5; /* test loop size's variable    */
-    FILE * out, * inp; /* declare output/input stream  */
-    int npes; /* number of processes          */
-    struct block * localdata = NULL; /* for local  array pointer     */
-    long long localsize; /* for local array size         */
+void sort(struct block *globalData, int size) {
+    double t_start, t_end;
+    long long test_size = 5;          
 
+    int rank; //process rank   
+    int npes; //number of processors   
     MPI_Comm_size(MPI_COMM_WORLD, & npes);
     MPI_Comm_rank(MPI_COMM_WORLD, & rank);
 
     if (rank == MASTER) {
         printf("\n\nProcessor %d has data: ", rank);
-        for (i = 0; i < test_size; i++) {
-            printf("%lld \t", globaldata[i].signature);
+        for (int i = 0; i < test_size; i++) {
+            printf("%lld \t", globalData[i].signature);
         }
         printf("\n");
     }
 
-    /*Start wall  time                                                    */
+    //start timer and check whether sort can be distributed
     if (rank == MASTER) {
         t_start = MPI_Wtime();
+        if (size < npes) {
+            printf("Size is less than the number of process, reverting to qsort\n");
+            qsort(globalData, size, sizeof(struct block), blockComp);
+            return;
+        }
+        //send the block count from the master node
+        MPI_Send(&size, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);       
     }
+    //receiving the block count
+    MPI_Recv(&size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    //getting the size that is used by each process    
+    int localsize = size/npes;
 
-    /*Getting the size to be used by each process                         */
-    if (SIZE < npes) {
-        printf("\n\n SIZE is less than the number of process!  \n\n ");
-        exit(EXIT_FAILURE);
-    }
-    localsize = SIZE / npes;
-
-    /* Allocate memory to localdata of size localsize                     */
-    localdata = (struct block * ) malloc(localsize * sizeof(struct block));
+    //allocate memory for each node
+    struct block *localdata = malloc(localsize * sizeof(struct block));
     if (localdata == NULL) {
-        printf("\n\n localdata Memory Allocation Failed !  \n\n ");
-        exit(EXIT_FAILURE);
+        printf("localdata Memory Allocation Failed\n");
+        return;
     }
 
-    /* create a type for struct block */
+    //create the block struct as an MPI type
     MPI_Datatype MPI_BLOCK_TYPE;
     MPI_Datatype type[2] = {MPI_INT, MPI_LONG_LONG};    
     int blocklen[2] = {1,1};
@@ -575,63 +536,44 @@ int sort(struct block *globaldata, long long SIZE) {
     MPI_Type_create_struct(2, blocklen, offsets, type, &MPI_BLOCK_TYPE);
     MPI_Type_commit(&MPI_BLOCK_TYPE);
 
-    /*Scatter the integers to each number of processes (npes)             */
-    MPI_Scatter(globaldata, localsize, MPI_BLOCK_TYPE, localdata,
-        localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
-
-    /* Perform local sort on each sub data by each process                */
+    //Scatter the blocks to each process
+    //Each process receives the array of sructs
+    MPI_Scatter(globaldata, localsize, MPI_BLOCK_TYPE, localdata, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
     quickSortRecursive(localdata, 0, localsize - 1);
 
-    /*
-     * printf ("\n\nProcessor %d has sorted data \n\n", rank);
-     *   for ( i = 0; i<test_size; i++) {
-     *     printf ("%lld \t", localdata[i]);
-     *  }
-     */
-
-    /* Merge locally sorted data of each process by MASTER to globaldata  */
-    MPI_Gather(localdata, localsize, MPI_BLOCK_TYPE, globaldata,
-        localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
+    //merge the locally sorted data
+    MPI_Gather(localdata, localsize, MPI_BLOCK_TYPE, globaldata, localsize, MPI_BLOCK_TYPE, MASTER, MPI_COMM_WORLD);
     free(localdata);
 
     if (rank == MASTER) {
-        /* Final sorting                                                    */
-        quickSortRecursive(globaldata, 0, SIZE - 1);
-
-        /* End wall  time                                                   */
+        //final sort on master
+        quickSortRecursive(globaldata, 0, size - 1);
+        //stop timer
         t_end = MPI_Wtime();
-        printf("\n\nWall time      : %7.4f\t", t_end - t_start);
-        printf("\n\n");
-
-        /* checking if the final globaldata content is properly sorted      */
-        //sortCheckers(SIZE, globaldata);
-
-        printf("\n\n");
-
+        printf("Sorting time: %7.4f\n", t_end - t_start);
     }
-    return EXIT_SUCCESS;
 }
-
-
 
 int main(int argc, char* argv[]) {
     clock_t startTotal = clock();    
-    struct block * blocks;
-    int blockCount = 29353148;  
+    long long *keys;
+    float **data;    
+    struct block * sortedBlocks;
+    struct elementGroups b;    
+    int blockCount = 0;  
 
-    /* Initialize the MPI execution environment                           */
+    //initialise MPI
     MPI_Init(NULL, NULL);    
     int rank;
+    //get the rank
     MPI_Comm_rank(MPI_COMM_WORLD, & rank);
 
     if (rank == MASTER) { 
-        int npes;
-        MPI_Comm_size(MPI_COMM_WORLD, & npes);
-        printf("%d processes\n", npes); 
+        if(argc > 2) printf("Nodes: %s, PPN: %s\n", argv[1], argv[2]); 
 
         clock_t start = clock();
-        long long *keys = loadKeys();
-        float **data = loadMatrix();
+        keys = loadKeys();
+        data = loadMatrix();
         struct element **elementMatrix = getElementMatrix(data, keys);
         int msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
         printf("Time taken to load data: %d seconds %d milliseconds\n", msec/1000, msec%1000);
@@ -643,33 +585,31 @@ int main(int argc, char* argv[]) {
         printf("Time taken to find %d neighbourhoods: %d seconds %d milliseconds\n", n.count, msec/1000, msec%1000);
     
         start = clock();
-        //struct elementGroups b = getBlocks(n);
-        struct elementGroups b = getBlocksParallel(n, keys);
+        b = getBlocksParallel(n, keys);
         msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
         printf("Time taken to find %d blocks: %d seconds %d milliseconds\n", b.count, msec/1000, msec%1000);
 
-        blocks = malloc(b.count * sizeof(struct block));
+        sortedBlocks = malloc(b.count * sizeof(struct block));
         for(int i = 0; i < b.count; i++) {
-            blocks[i].index = i;
-            blocks[i].signature = b.groups[i].signature;
+            sortedBlocks[i].index = i;
+            sortedBlocks[i].signature = b.groups[i].signature;
         }
-        /*
+        
         start = clock();
-        struct collisions c = getCollisions(b);
+        qsort(b.groups, b.count, sizeof(struct colElementGroup), groupComp_sig);
         msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-        printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
-       */ 
-
+        printf("qsort time taken: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);      
     }
-    sort(blocks, blockCount);
-    /*
-    //printCollisions(c, data);
-    */
+    sort(sortedBlocks, blockCount);
+
     if (rank == MASTER) { 
+        sortCheckers(blockCount, sortedBlocks);
+        struct collisions c = getCollisions(b, sortedBlocks);   
+        printCollisions(c, data);
+
         int msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
         printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
     }
-    /* MPI_Finalize Terminates MPI execution environment                  */
     MPI_Finalize();
 
     return (EXIT_SUCCESS);
