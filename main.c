@@ -473,35 +473,13 @@ void quickSortRecursive(struct block x[], int first, int last) {
     }
 }
 
-void sortCheckers(int size, struct block input[]) {
-    int i;
-    for (i = 1; i < size; i++) {
-        if (input[i - 1].signature > input[i].signature) {
-            printf("%lld -- %lld \n", input[i - 1].signature, input[i].signature);
-            printf("Check failed. Array not sorted\n");
-            break;
-        }
-
-    }
-    printf("\n\nCheck successfully completed. Array Sorted");
-}
-
 void sort(struct block *globalData, int size) {
-    double t_start, t_end;
-    long long test_size = 5;          
+    double t_start, t_end;          
 
     int rank; //process rank   
     int npes; //number of processors   
     MPI_Comm_size(MPI_COMM_WORLD, & npes);
     MPI_Comm_rank(MPI_COMM_WORLD, & rank);
-
-    if (rank == MASTER) {
-        printf("\n\nProcessor %d has data: ", rank);
-        for (int i = 0; i < test_size; i++) {
-            printf("%lld \t", globalData[i].signature);
-        }
-        printf("\n");
-    }
 
     //start timer and check whether sort can be distributed
     if (rank == MASTER) {
@@ -511,8 +489,10 @@ void sort(struct block *globalData, int size) {
             qsort(globalData, size, sizeof(struct block), blockComp);
             return;
         }
-        //send the block count from the master node
-        MPI_Send(&size, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);       
+        //send the block count from the master node to every other node
+        for (int i = 0; i < npes; i++) {
+		MPI_Send(&size, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+	}       
     }
     //receiving the block count
     MPI_Recv(&size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -524,7 +504,7 @@ void sort(struct block *globalData, int size) {
     if (localdata == NULL) {
         printf("localdata Memory Allocation Failed\n");
         return;
-    }
+    } 
 
     //create the block struct as an MPI type
     MPI_Datatype MPI_BLOCK_TYPE;
@@ -547,7 +527,7 @@ void sort(struct block *globalData, int size) {
 
     if (rank == MASTER) {
         //final sort on master
-        quickSortRecursive(globaldata, 0, size - 1);
+        quickSortRecursive(globalData, 0, size - 1);
         //stop timer
         t_end = MPI_Wtime();
         printf("Sorting time: %7.4f\n", t_end - t_start);
@@ -555,12 +535,11 @@ void sort(struct block *globalData, int size) {
 }
 
 int main(int argc, char* argv[]) {
-    clock_t startTotal = clock();   
+    clock_t startTotal = clock();    
     long long *keys;
     float **data;    
     struct block * sortedBlocks;
-    struct elementGroups b;    
-    int blockCount = 0;  
+    struct elementGroups b;      
 
     //initialise MPI
     MPI_Init(NULL, NULL);    
@@ -593,26 +572,15 @@ int main(int argc, char* argv[]) {
         for(int i = 0; i < b.count; i++) {
             sortedBlocks[i].index = i;
             sortedBlocks[i].signature = b.groups[i].signature;
-        }
-        
-        start = clock();
-        qsort(b.groups, b.count, sizeof(struct colElementGroup), groupComp_sig);
-        msec = (clock() - start) * 1000 / CLOCKS_PER_SEC;
-        printf("qsort time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);      
+        }      
     }
-
-    clock_t startSort = clock();  
-    sort(sortedBlocks, blockCount);
+    sort(sortedBlocks, b.count);
 
     if (rank == MASTER) { 
-        sortCheckers(blockCount, sortedBlocks);
-        struct collisions c = getCollisions(b, sortedBlocks); 
-        int msec = (clock() - startSort) * 1000 / CLOCKS_PER_SEC;
-        printf("Time taken to find %d collisions: %d seconds %d milliseconds\n", c.count, msec/1000, msec%1000);
+        struct collisions c = getCollisions(b, sortedBlocks);   
+        //printCollisions(c, data);
 
-        printCollisions(c, data);
-
-        msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
+        int msec = (clock() - startTotal) * 1000 / CLOCKS_PER_SEC;
         printf("Total time taken: %d seconds %d milliseconds\n", msec/1000, msec%1000);
     }
     MPI_Finalize();
